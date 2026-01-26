@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { DragDropContext, Droppable, DropResult } from '@hello-pangea/dnd';
+import { DragDropContext, DropResult } from '@hello-pangea/dnd';
 import type { Task, Project, TaskStatus } from '@/types';
 import TaskCard from './TaskCard';
+import BoardHeader from './BoardHeader';
+import StatusColumn from './StatusColumn';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
@@ -47,6 +49,7 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
   const [newProjectIcon, setNewProjectIcon] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<TaskStatus>('TODO');
   const [selectedCategory, setSelectedCategory] = useState('Dev');
+  const [newSubTaskTitle, setNewSubTaskTitle] = useState('');
 
   const currentProject = projects.find(p => p.id === currentProjectId) || projects[0];
 
@@ -219,43 +222,57 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
     setEditingTask(null);
   };
 
+  const handleAddSubTask = () => {
+    if (!editingTask || !newSubTaskTitle.trim()) return;
+
+    const newSubTask = {
+      id: Date.now().toString(),
+      title: newSubTaskTitle,
+      isCompleted: false,
+    };
+
+    setEditingTask({
+      ...editingTask,
+      subTasks: [...editingTask.subTasks, newSubTask],
+    });
+    setNewSubTaskTitle('');
+  };
+
+  const handleToggleSubTask = (subTaskId: string) => {
+    if (!editingTask) return;
+
+    const updatedSubTasks = editingTask.subTasks.map(st =>
+      st.id === subTaskId ? { ...st, isCompleted: !st.isCompleted } : st
+    );
+
+    setEditingTask({
+      ...editingTask,
+      subTasks: updatedSubTasks,
+    });
+  };
+
+  const handleDeleteSubTask = (subTaskId: string) => {
+    if (!editingTask) return;
+
+    const updatedSubTasks = editingTask.subTasks.filter(st => st.id !== subTaskId);
+
+    setEditingTask({
+      ...editingTask,
+      subTasks: updatedSubTasks,
+    });
+  };
+
   const getTasksByStatus = (status: TaskStatus): Task[] => {
     return currentProject.tasks.filter((task: Task) => task.status === status);
   };
 
   return (
     <div className="flex h-screen flex-col bg-[#0F1115] p-6">
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold text-white">{mounted ? currentProject.name : 'Loading...'}</h1>
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="Archive tasks"
-              className="rounded-lg bg-[#1E2128] px-4 py-2 text-sm text-gray-400 outline-none focus:ring-2 focus:ring-blue-600"
-            />
-            <Button variant="icon">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-              </svg>
-            </Button>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="primary" onClick={() => setIsModalOpen(true)}>
-            <span className="mr-2">+</span>
-            New task
-          </Button>
-          <div className="h-20 w-20 overflow-hidden rounded-full border-2 border-blue-600">
-            <img
-              src="https://scontent.fbkk7-3.fna.fbcdn.net/v/t51.82787-15/589646082_18087330131472960_5072594401506913898_n.jpg?_nc_cat=107&ccb=1-7&_nc_sid=127cfc&_nc_eui2=AeFPWG5vzmc11ZNoANyL3UNJ7ZL2ydfFJAPtkvbJ18UkAyMEia28EhHijkvONQYl9cWD_7zDZXOAP6QAxXARA8hq&_nc_ohc=tK_yw3xZfwIQ7kNvwERgalb&_nc_oc=AdnzOp6W5NNuYkEk6uP6Shq0GBUMgEfFseS11wmDs_4bfsiFm-EjhAqwvD1lpTFhJYI&_nc_zt=23&_nc_ht=scontent.fbkk7-3.fna&_nc_gid=sj_bjzPEz7XS2uNxmtGodA&oh=00_AfpedPlzTjmUqbqHmWl9V4A_TUTGBBAKYVc_EwzdPLHwvA&oe=6978CAA3"
-              alt="User"
-              className="h-full w-full object-cover"
-            />
-          </div>
-        </div>
-      </div>
+      <BoardHeader
+        projectName={currentProject?.name || 'My Project'}
+        isLoading={!mounted}
+        onNewTask={() => setIsModalOpen(true)}
+      />
 
       {/* Kanban Board */}
       <DragDropContext onDragEnd={handleDragEnd}>
@@ -263,45 +280,13 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
           {statusColumns.map((column) => {
             const tasks = getTasksByStatus(column.id);
             return (
-              <div key={column.id} className="flex min-w-75 flex-1 flex-col">
-                {/* Column Header */}
-                <div className="mb-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-sm font-semibold text-white">{column.label}</h2>
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#1E2128] text-xs text-gray-400">
-                      {mounted ? tasks.length : 0}
-                    </span>
-                  </div>
-                  <button className="text-gray-500 hover:text-white transition-colors">
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                  </button>
-                </div>
-
-                {/* Droppable Column */}
-                <Droppable droppableId={column.id}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.droppableProps}
-                      className={`flex-1 overflow-y-auto rounded-lg transition-colors ${
-                        snapshot.isDraggingOver ? 'bg-blue-600/5' : ''
-                      }`}
-                    >
-                      {mounted && tasks.map((task: Task, index: number) => (
-                        <TaskCard 
-                          key={task.id} 
-                          task={task} 
-                          index={index}
-                          onClick={() => handleTaskClick(task)}
-                        />
-                      ))}
-                      {provided.placeholder}
-                    </div>
-                  )}
-                </Droppable>
-              </div>
+              <StatusColumn
+                key={column.id}
+                column={column}
+                tasks={tasks}
+                mounted={mounted}
+                onTaskClick={handleTaskClick}
+              />
             );
           })}
         </div>
@@ -613,6 +598,66 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
                   </svg>
                 </div>
               </div>
+            </div>
+            <div className="border-t border-gray-700 pt-4">
+              <label className="mb-3 block text-sm font-medium text-gray-300">Sub-Tasks</label>
+              
+              {/* Add Sub-Task Input */}
+              <div className="mb-4 flex gap-2">
+                <input
+                  type="text"
+                  value={newSubTaskTitle}
+                  onChange={(e) => setNewSubTaskTitle(e.target.value)}
+                  placeholder="Add new sub-task..."
+                  className="flex-1 rounded-lg bg-[#0F1115] px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-blue-600"
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddSubTask()}
+                />
+                <Button 
+                  variant="primary" 
+                  onClick={handleAddSubTask}
+                  className="px-3 py-2 text-sm"
+                >
+                  +
+                </Button>
+              </div>
+
+              {/* Sub-Task List */}
+              {editingTask.subTasks.length > 0 ? (
+                <div className="max-h-48 overflow-y-auto space-y-2 rounded-lg bg-[#0F1115] p-3">
+                  {editingTask.subTasks.map((subTask) => (
+                    <div 
+                      key={subTask.id} 
+                      className="flex items-center gap-3 p-2 rounded hover:bg-[#252930] transition-colors group"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={subTask.isCompleted}
+                        onChange={() => handleToggleSubTask(subTask.id)}
+                        className="h-4 w-4 rounded border-gray-600 text-blue-600 focus:ring-2 focus:ring-blue-600 cursor-pointer"
+                      />
+                      <span 
+                        className={`flex-1 text-sm ${
+                          subTask.isCompleted 
+                            ? 'text-gray-500 line-through' 
+                            : 'text-gray-300'
+                        }`}
+                      >
+                        {subTask.title}
+                      </span>
+                      <button
+                        onClick={() => handleDeleteSubTask(subTask.id)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-500 hover:text-red-400"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">No sub-tasks yet</p>
+              )}
             </div>
             <div className="flex justify-between gap-3 pt-4 border-t border-gray-700">
               <Button 

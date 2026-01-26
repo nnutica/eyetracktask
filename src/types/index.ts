@@ -31,3 +31,10 @@ export interface ScheduledCall {
   date: string;
   attendees?: string[];
 }
+export interface UserProfile {
+  id: string;
+  username: string;
+  email: string;
+  profilePicture?: string; // base64 image or URL
+  createdAt: string;
+}

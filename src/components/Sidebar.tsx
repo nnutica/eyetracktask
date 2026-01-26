@@ -188,19 +188,6 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
           )}
         </button>
 
-        {/* Theme Toggle */}
-        <button className={`mt-4 flex h-10 items-center gap-3 rounded-lg text-gray-500 hover:bg-white/5 hover:text-white transition-all duration-200 ${
-          isExpanded ? 'px-3 justify-start w-full' : 'justify-center'
-        }`}>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-            </svg>
-          </div>
-          {isExpanded && (
-            <span className="text-sm font-medium whitespace-nowrap">Dark Mode</span>
-          )}
-        </button>
       </div>
     </div>
   );
