@@ -171,7 +171,7 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
                   : 'bg-gray-800 text-gray-400'
               }`}>
                 {project.icon ? (
-                  project.icon.startsWith('data:') || project.icon.startsWith('http') ? (
+                  project.icon.length > 2 ? (
                     <img src={project.icon} alt={project.name} className="h-full w-full object-cover" />
                   ) : (
                     <span className="text-lg">{project.icon}</span>

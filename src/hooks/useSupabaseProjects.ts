@@ -140,6 +140,39 @@ export function useSupabaseProjects() {
     [supabase, fetchProjects]
   )
 
+  const uploadProjectIcon = useCallback(
+    async (file: File, projectId?: string): Promise<string> => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+
+        if (!user) throw new Error('User not authenticated')
+
+        const fileExt = file.name.split('.').pop()
+        const fileName = `${user.id}/${projectId || Date.now()}-${Date.now()}.${fileExt}`
+
+        // Upload image to storage
+        const { error: uploadError } = await supabase.storage
+          .from('project-img')
+          .upload(fileName, file, { upsert: true })
+
+        if (uploadError) throw uploadError
+
+        // Get public URL
+        const { data } = supabase.storage
+          .from('project-img')
+          .getPublicUrl(fileName)
+
+        return data.publicUrl
+      } catch (err) {
+        console.error('Error uploading project icon:', err)
+        throw err
+      }
+    },
+    [supabase]
+  )
+
   const updateProject = useCallback(
     async (projectId: string, updates: Partial<ProjectRow>) => {
       try {
@@ -325,6 +358,7 @@ export function useSupabaseProjects() {
     createProject,
     updateProject,
     deleteProject,
+    uploadProjectIcon,
     addTask,
     updateTask,
     deleteTask,
