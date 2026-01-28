@@ -2,12 +2,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useProfile } from '@/hooks/useProfile';
+import { useSupabaseProfile } from '@/hooks/useSupabaseProfile';
 import Button from '@/components/ui/Button';
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { profile, updateProfile, updateProfilePicture } = useProfile();
+  const { profile, updateProfile, updateProfilePicture, logout } = useSupabaseProfile();
   const [mounted, setMounted] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
@@ -15,13 +15,17 @@ export default function ProfilePage() {
     email: '',
   });
   const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   useEffect(() => {
     setMounted(true);
-    setFormData({
-      username: profile.username,
-      email: profile.email,
-    });
+    if (profile) {
+      setFormData({
+        username: profile.username,
+        email: profile.email,
+      });
+    }
   }, [profile]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -29,19 +33,28 @@ export default function ProfilePage() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSave = () => {
-    updateProfile({
-      username: formData.username,
-      email: formData.email,
-    });
-    setIsEditing(false);
+  const handleSave = async () => {
+    setError('');
+    setSuccess('');
+    try {
+      await updateProfile({
+        username: formData.username,
+        email: formData.email,
+      });
+      setSuccess('Profile updated successfully');
+      setIsEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update profile');
+    }
   };
 
   const handleCancel = () => {
-    setFormData({
-      username: profile.username,
-      email: profile.email,
-    });
+    if (profile) {
+      setFormData({
+        username: profile.username,
+        email: profile.email,
+      });
+    }
     setIsEditing(false);
   };
 
@@ -51,28 +64,41 @@ export default function ProfilePage() {
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      alert('Please upload an image file');
+      setError('Please upload an image file');
       return;
     }
 
-    // Validate file size (max 10MB before compression)
+    // Validate file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
-      alert('Image size should be less than 10MB');
+      setError('Image size should be less than 10MB');
       return;
     }
 
+    setError('');
+    setSuccess('');
     setIsUploading(true);
     try {
       await updateProfilePicture(file);
-    } catch (error) {
-      console.error('Failed to upload image:', error);
-      alert('Failed to upload image');
+      setSuccess('Profile picture updated successfully');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upload image');
     } finally {
       setIsUploading(false);
     }
   };
 
-  if (!mounted) {
+  const handleLogout = async () => {
+    if (confirm('Are you sure you want to logout?')) {
+      try {
+        await logout();
+        router.push('/login');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to logout');
+      }
+    }
+  };
+
+  if (!mounted || !profile) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#0F1115]">
         <div className="text-white">Loading...</div>
@@ -96,6 +122,20 @@ export default function ProfilePage() {
             Back
           </Button>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 rounded-lg bg-red-950 border border-red-800 p-4">
+            <p className="text-red-400">{error}</p>
+          </div>
+        )}
+
+        {/* Success Message */}
+        {success && (
+          <div className="mb-6 rounded-lg bg-green-950 border border-green-800 p-4">
+            <p className="text-green-400">{success}</p>
+          </div>
+        )}
 
         {/* Profile Card */}
         <div className="rounded-lg border border-gray-800 bg-[#1E2128] p-8">
@@ -226,6 +266,31 @@ export default function ProfilePage() {
                   </Button>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Logout Section */}
+          <div className="mt-8 border-t border-gray-700 pt-8">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Logout</h3>
+                <p className="mt-1 text-sm text-gray-400">Sign out from your account</p>
+              </div>
+              <Button
+                variant="ghost"
+                onClick={handleLogout}
+                className="bg-red-950 text-red-400 hover:bg-red-900"
+              >
+                <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  />
+                </svg>
+                Logout
+              </Button>
             </div>
           </div>
         </div>

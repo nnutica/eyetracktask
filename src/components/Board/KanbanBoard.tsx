@@ -8,7 +8,7 @@ import BoardHeader from './BoardHeader';
 import StatusColumn from './StatusColumn';
 import Button from '../ui/Button';
 import Modal from '../ui/Modal';
-import { useLocalStorage } from '@/hooks/useLocalStorage';
+import { useSupabaseProjects } from '@/hooks/useSupabaseProjects';
 
 const statusColumns: { id: TaskStatus; label: string; count?: number }[] = [
   { id: 'TODO', label: 'To Do' },
@@ -34,8 +34,7 @@ export interface KanbanBoardHandle {
 
 const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
   const [mounted, setMounted] = useState(false);
-  const [projects, setProjects] = useLocalStorage<Project[]>('eyetracktask-projects', [initialProject]);
-  const [currentProjectId, setCurrentProjectId] = useLocalStorage<string>('eyetracktask-current-project', '1');
+  const [currentProjectId, setCurrentProjectId] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -50,19 +49,42 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
   const [selectedStatus, setSelectedStatus] = useState<TaskStatus>('TODO');
   const [selectedCategory, setSelectedCategory] = useState('Dev');
   const [newSubTaskTitle, setNewSubTaskTitle] = useState('');
+  const [optimisticProjects, setOptimisticProjects] = useState<Project[] | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState<TaskStatus | ''>('');
+  
+  const {
+    projects: supabaseProjects,
+    loading,
+    error,
+    createProject,
+    updateProject,
+    deleteProject,
+    addTask,
+    updateTask,
+    deleteTask,
+    addSubTask,
+    updateSubTask,
+    deleteSubTask,
+  } = useSupabaseProjects();
+
+  // Use optimistic state if available, otherwise use Supabase state
+  const projects = optimisticProjects || supabaseProjects;
 
   const currentProject = projects.find(p => p.id === currentProjectId) || projects[0];
-
-  const updateCurrentProject = (updatedProject: Project) => {
-    setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
-    // Trigger custom event for RightPanel to refresh
-    window.dispatchEvent(new Event('taskUpdated'));
-  };
 
   // Prevent hydration mismatch
   useEffect(() => {
     setMounted(true);
-  }, []);
+    if (projects.length > 0 && !currentProjectId) {
+      setCurrentProjectId(projects[0].id);
+    }
+  }, [projects, currentProjectId]);
+
+  // Emit event when projects or current project changes
+  useEffect(() => {
+    window.dispatchEvent(new Event('projectsUpdated'));
+  }, [projects, currentProjectId]);
 
   // Expose openProjectModal to parent
   useImperativeHandle(ref, () => ({
@@ -95,90 +117,107 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
     if (!destination) return;
     if (destination.droppableId === source.droppableId && destination.index === source.index) return;
 
-    const newTasks: Task[] = Array.from(currentProject.tasks);
-    const taskIndex = newTasks.findIndex((t: Task) => t.id === draggableId);
-    const [movedTask] = newTasks.splice(taskIndex, 1);
-    movedTask.status = destination.droppableId as TaskStatus;
+    const newStatus = destination.droppableId as TaskStatus;
+    const task = currentProject?.tasks.find(t => t.id === draggableId);
+    
+    if (task && task.status !== newStatus) {
+      // Optimistic update - update UI immediately
+      const updatedProjects = projects.map(p => {
+        if (p.id === currentProjectId) {
+          return {
+            ...p,
+            tasks: p.tasks.map(t => 
+              t.id === draggableId ? { ...t, status: newStatus } : t
+            )
+          };
+        }
+        return p;
+      });
+      setOptimisticProjects(updatedProjects);
 
-    // Re-insert at the correct position
-    const destTasks = newTasks.filter((t: Task) => t.status === destination.droppableId);
-    const otherTasks = newTasks.filter((t: Task) => t.status !== destination.droppableId);
-    destTasks.splice(destination.index, 0, movedTask);
-
-    updateCurrentProject({ ...currentProject, tasks: [...otherTasks, ...destTasks] });
+      // Then update in database
+      updateTask(draggableId, { status: newStatus })
+        .then(() => {
+          // Reset optimistic state once successful
+          setOptimisticProjects(null);
+        })
+        .catch(() => {
+          // On error, revert optimistic state
+          setOptimisticProjects(null);
+        });
+    }
   };
 
-  const handleCreateTask = () => {
-    if (!newTaskTitle.trim()) return;
+  const handleCreateTask = async () => {
+    if (!newTaskTitle.trim() || !currentProject) return;
 
-    const newTask: Task = {
-      id: Date.now().toString(),
-      title: newTaskTitle,
-      description: newTaskDescription,
-      status: selectedStatus,
-      dueDate: newTaskDueDate || new Date().toISOString().split('T')[0],
-      category: selectedCategory,
-      subTasks: [],
-    };
+    try {
+      await addTask(
+        currentProject.id,
+        newTaskTitle,
+        newTaskDescription,
+        newTaskDueDate || new Date().toISOString().split('T')[0],
+        selectedCategory
+      );
 
-    updateCurrentProject({ ...currentProject, tasks: [...currentProject.tasks, newTask] });
-    setNewTaskTitle('');
-    setNewTaskDescription('');
-    setNewTaskDueDate('');
-    setIsModalOpen(false);
+      setNewTaskTitle('');
+      setNewTaskDescription('');
+      setNewTaskDueDate('');
+      setIsModalOpen(false);
+    } catch (error) {
+      console.error('Error creating task:', error);
+      alert('Failed to create task');
+    }
   };
 
-  const handleCreateProject = () => {
+  const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
 
-    const newProject: Project = {
-      id: Date.now().toString(),
-      name: newProjectName,
-      icon: newProjectIcon,
-      tasks: [],
-    };
-
-    setProjects([...projects, newProject]);
-    setCurrentProjectId(newProject.id);
-    setNewProjectName('');
-    setNewProjectIcon('');
-    setIsProjectModalOpen(false);
-    
-    // Trigger custom event for RightPanel to refresh
-    window.dispatchEvent(new Event('taskUpdated'));
+    try {
+      const newProject = await createProject(newProjectName, newProjectIcon) as any;
+      if (newProject?.id) {
+        setCurrentProjectId(newProject.id);
+      }
+      setNewProjectName('');
+      setNewProjectIcon('');
+      setIsProjectModalOpen(false);
+    } catch (error) {
+      console.error('Error creating project:', error);
+      alert('Failed to create project');
+    }
   };
 
-  const handleUpdateProject = () => {
+  const handleUpdateProject = async () => {
     if (!editingProject || !editingProject.name.trim()) return;
 
-    setProjects(projects.map(p => p.id === editingProject.id ? editingProject : p));
-    setIsEditProjectModalOpen(false);
-    setEditingProject(null);
-    
-    // Trigger custom event for RightPanel to refresh
-    window.dispatchEvent(new Event('taskUpdated'));
+    try {
+      await updateProject(editingProject.id, {
+        name: editingProject.name,
+        icon: editingProject.icon || null,
+      });
+      setIsEditProjectModalOpen(false);
+      setEditingProject(null);
+    } catch (error) {
+      console.error('Error updating project:', error);
+      alert('Failed to update project');
+    }
   };
 
-  const handleDeleteProject = () => {
+  const handleDeleteProject = async () => {
     if (!editingProject) return;
     if (projects.length === 1) {
       alert('Cannot delete the last project');
       return;
     }
 
-    const updatedProjects = projects.filter(p => p.id !== editingProject.id);
-    setProjects(updatedProjects);
-    
-    // Switch to first project if current is deleted
-    if (currentProjectId === editingProject.id) {
-      setCurrentProjectId(updatedProjects[0].id);
+    try {
+      await deleteProject(editingProject.id);
+      setIsEditProjectModalOpen(false);
+      setEditingProject(null);
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      alert('Failed to delete project');
     }
-    
-    // Trigger custom event for RightPanel to refresh
-    window.dispatchEvent(new Event('taskUpdated'));
-    
-    setIsEditProjectModalOpen(false);
-    setEditingProject(null);
   };
 
   const compressImage = (file: File): Promise<string | null> => {
@@ -244,77 +283,141 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
     setIsEditModalOpen(true);
   };
 
-  const handleUpdateTask = () => {
+  const handleUpdateTask = async () => {
     if (!editingTask) return;
 
-    const updatedTasks = currentProject.tasks.map(t => 
-      t.id === editingTask.id ? editingTask : t
-    );
-    updateCurrentProject({ ...currentProject, tasks: updatedTasks });
-    setIsEditModalOpen(false);
-    setEditingTask(null);
+    try {
+      await updateTask(editingTask.id, {
+        title: editingTask.title,
+        description: editingTask.description || null,
+        status: editingTask.status,
+        due_date: editingTask.dueDate,
+        category: editingTask.category,
+      });
+      setIsEditModalOpen(false);
+      setEditingTask(null);
+    } catch (error) {
+      console.error('Error updating task:', error);
+      alert('Failed to update task');
+    }
   };
 
-  const handleDeleteTask = () => {
+  const handleDeleteTask = async () => {
     if (!editingTask) return;
 
-    const updatedTasks = currentProject.tasks.filter(t => t.id !== editingTask.id);
-    updateCurrentProject({ ...currentProject, tasks: updatedTasks });
-    setIsEditModalOpen(false);
-    setEditingTask(null);
+    try {
+      await deleteTask(editingTask.id);
+      setIsEditModalOpen(false);
+      setEditingTask(null);
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      alert('Failed to delete task');
+    }
   };
 
-  const handleAddSubTask = () => {
+  const handleAddSubTask = async () => {
     if (!editingTask || !newSubTaskTitle.trim()) return;
 
-    const newSubTask = {
-      id: Date.now().toString(),
-      title: newSubTaskTitle,
-      isCompleted: false,
-    };
-
-    setEditingTask({
-      ...editingTask,
-      subTasks: [...editingTask.subTasks, newSubTask],
-    });
-    setNewSubTaskTitle('');
+    try {
+      await addSubTask(editingTask.id, newSubTaskTitle);
+      setNewSubTaskTitle('');
+      // Refresh editing task
+      const updatedProject = projects.find((p: Project) => p.id === currentProjectId);
+      const updatedTask = updatedProject?.tasks.find((t: Task) => t.id === editingTask.id);
+      if (updatedTask) {
+        setEditingTask(updatedTask);
+      }
+    } catch (error) {
+      console.error('Error adding subtask:', error);
+      alert('Failed to add subtask');
+    }
   };
 
-  const handleToggleSubTask = (subTaskId: string) => {
+  const handleToggleSubTask = async (subTaskId: string) => {
     if (!editingTask) return;
 
-    const updatedSubTasks = editingTask.subTasks.map(st =>
-      st.id === subTaskId ? { ...st, isCompleted: !st.isCompleted } : st
-    );
-
-    setEditingTask({
-      ...editingTask,
-      subTasks: updatedSubTasks,
-    });
+    try {
+      const subTask = editingTask.subTasks.find(st => st.id === subTaskId);
+      if (subTask) {
+        await updateSubTask(subTaskId, { is_completed: !subTask.isCompleted });
+        setEditingTask({
+          ...editingTask,
+          subTasks: editingTask.subTasks.map(st =>
+            st.id === subTaskId ? { ...st, isCompleted: !st.isCompleted } : st
+          ),
+        });
+      }
+    } catch (error) {
+      console.error('Error toggling subtask:', error);
+      alert('Failed to update subtask');
+    }
   };
 
-  const handleDeleteSubTask = (subTaskId: string) => {
+  const handleDeleteSubTask = async (subTaskId: string) => {
     if (!editingTask) return;
 
-    const updatedSubTasks = editingTask.subTasks.filter(st => st.id !== subTaskId);
-
-    setEditingTask({
-      ...editingTask,
-      subTasks: updatedSubTasks,
-    });
+    try {
+      await deleteSubTask(subTaskId);
+      setEditingTask({
+        ...editingTask,
+        subTasks: editingTask.subTasks.filter(st => st.id !== subTaskId),
+      });
+    } catch (error) {
+      console.error('Error deleting subtask:', error);
+      alert('Failed to delete subtask');
+    }
   };
 
   const getTasksByStatus = (status: TaskStatus): Task[] => {
-    return currentProject.tasks.filter((task: Task) => task.status === status);
+    if (!currentProject) return [];
+    let filteredTasks = currentProject.tasks.filter((task: Task) => task.status === status);
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filteredTasks = filteredTasks.filter((task: Task) =>
+        task.title.toLowerCase().includes(query) ||
+        task.description?.toLowerCase().includes(query)
+      );
+    }
+
+    // Apply status filter
+    if (filterStatus && filterStatus !== status) {
+      return [];
+    }
+
+    return filteredTasks;
+  };
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+  };
+
+  const handleFilter = (status: string) => {
+    setFilterStatus(status as TaskStatus | '');
   };
 
   return (
     <div className="flex h-screen flex-col bg-[#0F1115] p-6">
       <BoardHeader
         projectName={currentProject?.name || 'My Project'}
-        isLoading={!mounted}
+        isLoading={loading}
         onNewTask={() => setIsModalOpen(true)}
+        onSearch={handleSearch}
+        onFilter={handleFilter}
       />
+
+      {/* Error State */}
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-950 border border-red-800 p-4">
+          <p className="text-red-400 text-sm">
+            <strong>Error loading projects:</strong> {error}
+          </p>
+          <p className="text-red-400 text-xs mt-2">
+            💡 ถ้ายังไม่มี tables ใน Supabase ให้รันคำสั่ง SQL จากไฟล์ SUPABASE_SCHEMA.sql
+          </p>
+        </div>
+      )}
 
       {/* Kanban Board */}
       <DragDropContext onDragEnd={handleDragEnd}>

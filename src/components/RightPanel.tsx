@@ -40,28 +40,19 @@ export default function RightPanel({ kanbanRef }: RightPanelProps) {
     // Initial load with small delay to ensure kanbanRef is ready
     const initialTimeout = setTimeout(updateScheduledTasks, 100);
     
-    // Listen to localStorage changes
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'eyetracktask-projects') {
-        updateScheduledTasks();
-      }
-    };
-    
-    // Listen to custom task update event
-    const handleTaskUpdate = () => {
+    // Listen to custom event
+    const handleProjectsUpdated = () => {
       updateScheduledTasks();
     };
     
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('taskUpdated', handleTaskUpdate);
+    window.addEventListener('projectsUpdated', handleProjectsUpdated);
     
     // Update every minute to refresh "today" status
     const interval = setInterval(updateScheduledTasks, 60000);
     
     return () => {
       clearTimeout(initialTimeout);
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('taskUpdated', handleTaskUpdate);
+      window.removeEventListener('projectsUpdated', handleProjectsUpdated);
       clearInterval(interval);
     };
   }, [kanbanRef]);

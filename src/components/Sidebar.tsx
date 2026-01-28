@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import type { Project } from '@/types';
+import { useSupabaseProfile } from '@/hooks/useSupabaseProfile';
 
 interface SidebarProps {
   onNewProject?: () => void;
@@ -17,39 +19,30 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string>('');
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const router = useRouter();
+  const { profile, logout } = useSupabaseProfile();
 
+  // Sync projects from kanbanRef when they change
   useEffect(() => {
-    if (kanbanRef?.current) {
-      setProjects(kanbanRef.current.getProjects());
-      setCurrentProjectId(kanbanRef.current.getCurrentProjectId());
-    }
-  }, [kanbanRef]);
-
-  // Sync projects on storage/custom events instead of tight polling to avoid render loops.
-  useEffect(() => {
-    const updateProjects = () => {
+    const syncProjects = () => {
       if (kanbanRef?.current) {
-        setProjects(kanbanRef.current.getProjects());
-        setCurrentProjectId(kanbanRef.current.getCurrentProjectId());
+        const allProjects = kanbanRef.current.getProjects();
+        const currentId = kanbanRef.current.getCurrentProjectId();
+        setProjects(allProjects);
+        setCurrentProjectId(currentId);
       }
     };
 
-    updateProjects();
+    // Initial sync
+    syncProjects();
 
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === 'eyetracktask-projects' || e.key === 'eyetracktask-current-project') {
-        updateProjects();
-      }
-    };
-
-    const handleTaskUpdated = () => updateProjects();
-
-    window.addEventListener('storage', handleStorage);
-    window.addEventListener('taskUpdated', handleTaskUpdated);
+    // Listen for updates
+    const handleProjectsUpdated = () => syncProjects();
+    window.addEventListener('projectsUpdated', handleProjectsUpdated);
 
     return () => {
-      window.removeEventListener('storage', handleStorage);
-      window.removeEventListener('taskUpdated', handleTaskUpdated);
+      window.removeEventListener('projectsUpdated', handleProjectsUpdated);
     };
   }, [kanbanRef]);
 
@@ -67,6 +60,20 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
       .join('')
       .toUpperCase()
       .slice(0, 2);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.push('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      alert('Failed to logout');
+    }
+  };
+
+  const handleProfileClick = () => {
+    router.push('/profile');
   };
   const navItems = [
     {
@@ -187,11 +194,101 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
       </div>
 
       {/* New Project Button */}
-      <div className="mt-auto px-3">
+      <div className="mt-auto space-y-2 px-3">
+        {/* Profile Button */}
+        <div className="relative">
+          <button
+            onClick={() => setShowProfileMenu(!showProfileMenu)}
+            className={`flex h-12 w-full items-center gap-3 rounded-lg transition-all duration-200 ${
+              showProfileMenu
+                ? 'bg-zinc-800 text-white'
+                : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
+            } ${isExpanded ? 'px-3 justify-start' : 'justify-center'}`}
+            title="Profile"
+          >
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-500 to-purple-500 overflow-hidden">
+              {profile?.profilePicture ? (
+                <img
+                  src={profile.profilePicture}
+                  alt={profile.username}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="text-xs font-bold text-white">
+                  {profile?.username?.charAt(0)?.toUpperCase() || 'U'}
+                </span>
+              )}
+            </div>
+            {isExpanded && (
+              <div className="flex-1 text-left">
+                <p className="text-sm font-medium truncate">{profile?.username || 'User'}</p>
+                <p className="text-xs text-gray-500 truncate">{profile?.email}</p>
+              </div>
+            )}
+            {isExpanded && (
+              <svg
+                className={`w-4 h-4 transition-transform ${showProfileMenu ? 'rotate-180' : ''}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                />
+              </svg>
+            )}
+          </button>
+
+          {/* Profile Menu Dropdown */}
+          {showProfileMenu && isExpanded && (
+            <div className="absolute bottom-14 left-0 right-0 bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden shadow-lg z-50">
+              <button
+                onClick={() => {
+                  handleProfileClick();
+                  setShowProfileMenu(false);
+                }}
+                className="flex w-full items-center gap-3 px-4 py-3 text-sm text-gray-400 hover:bg-white/5 hover:text-white transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                Profile Settings
+              </button>
+              <div className="h-px bg-zinc-800"></div>
+              <button
+                onClick={() => {
+                  handleLogout();
+                  setShowProfileMenu(false);
+                }}
+                className="flex w-full items-center gap-3 px-4 py-3 text-sm text-red-400 hover:bg-red-950/20 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                  />
+                </svg>
+                Logout
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* New Project Button */}
         <button 
           onClick={onNewProject}
-          className={`flex h-12 items-center gap-3 rounded-lg bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white transition-all duration-200 ${
-            isExpanded ? 'px-3 justify-start w-full' : 'justify-center'
+          className={`flex h-12 w-full items-center gap-3 rounded-lg bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white transition-all duration-200 ${
+            isExpanded ? 'px-3 justify-start' : 'justify-center'
           }`}
           title="New Project"
         >
@@ -204,7 +301,6 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
             <span className="text-sm font-medium whitespace-nowrap">New Project</span>
           )}
         </button>
-
       </div>
     </div>
   );
