@@ -1,21 +1,31 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 export function useLocalStorage<T>(key: string, initialValue: T) {
-  // State to store our value
-  const [storedValue, setStoredValue] = useState<T>(() => {
-    if (typeof window === 'undefined') {
-      return initialValue;
-    }
+  // Start with a server-safe value; hydrate from localStorage once the client mounts.
+  const [storedValue, setStoredValue] = useState<T>(initialValue);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Load from localStorage on first client render.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     try {
       const item = window.localStorage.getItem(key);
-      return item ? JSON.parse(item) : initialValue;
+      if (item) {
+        setStoredValue(JSON.parse(item));
+      } else {
+        // Seed storage so a refresh keeps the new value after first change.
+        window.localStorage.setItem(key, JSON.stringify(initialValue));
+      }
     } catch (error) {
-      console.error(error);
-      return initialValue;
+      console.error('Failed to read localStorage', error);
+      setStoredValue(initialValue);
+    } finally {
+      setHydrated(true);
     }
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
 
-  // Return a wrapped version of useState's setter function that persists to localStorage
+  // Wrapped setter persists to localStorage when available.
   const setValue = (value: T | ((val: T) => T)) => {
     try {
       const valueToStore = value instanceof Function ? value(storedValue) : value;
@@ -24,9 +34,9 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
         window.localStorage.setItem(key, JSON.stringify(valueToStore));
       }
     } catch (error) {
-      console.error(error);
+      console.error('Failed to write localStorage', error);
     }
   };
 
-  return [storedValue, setValue] as const;
+  return [hydrated ? storedValue : initialValue, setValue] as const;
 }

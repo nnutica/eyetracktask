@@ -25,15 +25,32 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
     }
   }, [kanbanRef]);
 
-  // Update projects list when sidebar expands or every second
+  // Sync projects on storage/custom events instead of tight polling to avoid render loops.
   useEffect(() => {
-    const interval = setInterval(() => {
+    const updateProjects = () => {
       if (kanbanRef?.current) {
         setProjects(kanbanRef.current.getProjects());
         setCurrentProjectId(kanbanRef.current.getCurrentProjectId());
       }
-    }, 500);
-    return () => clearInterval(interval);
+    };
+
+    updateProjects();
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'eyetracktask-projects' || e.key === 'eyetracktask-current-project') {
+        updateProjects();
+      }
+    };
+
+    const handleTaskUpdated = () => updateProjects();
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('taskUpdated', handleTaskUpdated);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('taskUpdated', handleTaskUpdated);
+    };
   }, [kanbanRef]);
 
   const handleProjectClick = (projectId: string) => {

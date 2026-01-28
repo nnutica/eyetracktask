@@ -181,20 +181,62 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
     setEditingProject(null);
   };
 
-  const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean = false) => {
+  const compressImage = (file: File): Promise<string | null> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const reader = new FileReader();
+
+      reader.onload = (event) => {
+        img.src = event.target?.result as string;
+      };
+
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const maxSize = 320; // keep small to fit localStorage limits
+        let { width, height } = img;
+
+        if (width > height && width > maxSize) {
+          height = Math.round((height * maxSize) / width);
+          width = maxSize;
+        } else if (height > maxSize) {
+          width = Math.round((width * maxSize) / height);
+          height = maxSize;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        ctx?.clearRect(0, 0, width, height);
+        ctx?.drawImage(img, 0, 0, width, height);
+
+        const compressed = canvas.toDataURL('image/jpeg', 0.65);
+        const sizeKb = (compressed.length * 0.75) / 1024;
+        if (sizeKb > 400) {
+          alert('Icon is too large after compression (>400KB). Please pick a smaller image.');
+          resolve(null);
+        } else {
+          resolve(compressed);
+        }
+      };
+
+      img.onerror = () => resolve(null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleIconUpload = async (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean = false) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = reader.result as string;
-      if (isEdit && editingProject) {
-        setEditingProject({ ...editingProject, icon: base64 });
-      } else {
-        setNewProjectIcon(base64);
-      }
-    };
-    reader.readAsDataURL(file);
+    const base64 = await compressImage(file);
+    if (!base64) return;
+
+    if (isEdit && editingProject) {
+      setEditingProject({ ...editingProject, icon: base64 });
+    } else {
+      setNewProjectIcon(base64);
+    }
   };
 
   const handleTaskClick = (task: Task) => {
