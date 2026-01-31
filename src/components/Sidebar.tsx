@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import type { Project } from '@/types';
 import { useSupabaseProfile } from '@/hooks/useSupabaseProfile';
@@ -24,6 +24,7 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [projectOrder, setProjectOrder] = useState<string[]>([]);
   const router = useRouter();
+  const pathname = usePathname();
   const { profile, logout } = useSupabaseProfile();
   const { updateProjectOrder } = useSupabaseProjects();
 
@@ -133,7 +134,8 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
         </svg>
       ),
-      active: true,
+      label: 'Dashboard',
+      href: '/',
     },
     {
       icon: (
@@ -141,7 +143,8 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
       ),
-      active: false,
+      label: 'Calendar',
+      href: '/calendar',
     },
     
   ];
@@ -173,8 +176,9 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
         {navItems.map((item, index) => (
           <button
             key={index}
+            onClick={() => router.push(item.href)}
             className={`flex h-12 items-center gap-3 rounded-lg transition-all duration-200 ${
-              item.active
+              pathname === item.href
                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
                 : 'text-gray-500 hover:bg-white/5 hover:text-white'
             } ${isExpanded ? 'px-3 justify-start' : 'justify-center'}`}
@@ -183,7 +187,7 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
               {item.icon}
             </div>
             {isExpanded && (
-              <span className="text-sm font-medium whitespace-nowrap">Dashboard</span>
+              <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
             )}
           </button>
         ))}
