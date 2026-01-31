@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import type { Project } from '@/types';
 import { useSupabaseProfile } from '@/hooks/useSupabaseProfile';
+import { useSupabaseProjects } from '@/hooks/useSupabaseProjects';
 
 interface SidebarProps {
   onNewProject?: () => void;
@@ -20,8 +22,10 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string>('');
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [projectOrder, setProjectOrder] = useState<string[]>([]);
   const router = useRouter();
   const { profile, logout } = useSupabaseProfile();
+  const { updateProjectOrder } = useSupabaseProjects();
 
   // Sync projects from kanbanRef when they change
   useEffect(() => {
@@ -29,7 +33,22 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
       if (kanbanRef?.current) {
         const allProjects = kanbanRef.current.getProjects();
         const currentId = kanbanRef.current.getCurrentProjectId();
-        setProjects(allProjects);
+        
+        // If we have a custom order, apply it
+        let orderedProjects = allProjects;
+        if (projectOrder.length > 0) {
+          orderedProjects = projectOrder
+            .map(id => allProjects.find(p => p.id === id))
+            .filter(p => p !== undefined) as Project[];
+          // Add any new projects not in the order
+          allProjects.forEach(p => {
+            if (!projectOrder.includes(p.id)) {
+              orderedProjects.push(p);
+            }
+          });
+        }
+        
+        setProjects(orderedProjects);
         setCurrentProjectId(currentId);
       }
     };
@@ -44,7 +63,7 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
     return () => {
       window.removeEventListener('projectsUpdated', handleProjectsUpdated);
     };
-  }, [kanbanRef]);
+  }, [kanbanRef, projectOrder]);
 
   const handleProjectClick = (projectId: string) => {
     if (kanbanRef?.current) {
@@ -74,6 +93,38 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
 
   const handleProfileClick = () => {
     router.push('/profile');
+  };
+
+  const handleDragEnd = (result: DropResult) => {
+    const { source, destination, draggableId } = result;
+
+    // Dropped outside the list
+    if (!destination) return;
+
+    // Dropped in the same position
+    if (
+      destination.droppableId === source.droppableId &&
+      destination.index === source.index
+    ) return;
+
+    // Reorder projects locally
+    const newProjects = Array.from(projects);
+    const draggedProject = newProjects.find(p => p.id === draggableId);
+    
+    if (draggedProject) {
+      newProjects.splice(source.index, 1);
+      newProjects.splice(destination.index, 0, draggedProject);
+      setProjects(newProjects);
+      
+      // Save the new order
+      const newOrder = newProjects.map(p => p.id);
+      setProjectOrder(newOrder);
+      
+      // Update order in database (fire and forget)
+      updateProjectOrder(newOrder).catch(err => {
+        console.error('Error saving project order:', err);
+      });
+    }
   };
   const navItems = [
     {
@@ -139,7 +190,7 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
       </nav>
 
       {/* Projects Section */}
-      <div className="mt-6 flex-1 overflow-y-auto">
+      <div className="mt-6 flex-1 overflow-hidden flex flex-col">
         <div className={`mb-3 px-3 ${!isExpanded ? 'mb-2' : ''}`}>
           {isExpanded ? (
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Projects</h3>
@@ -147,50 +198,80 @@ export default function Sidebar({ onNewProject, kanbanRef }: SidebarProps) {
             <div className="h-px bg-gray-800"></div>
           )}
         </div>
-        <div className="space-y-2 px-5">
-          {projects.map((project) => (
-            <button
-              key={project.id}
-              onClick={() => handleProjectClick(project.id)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                if (kanbanRef?.current) {
-                  kanbanRef.current.editProject(project);
-                }
-              }}
-              className={`flex h-12 items-center gap-3 rounded-lg transition-all duration-200 ${
-                project.id === currentProjectId
-                  ? 'bg-blue-600/10 text-blue-400'
-                  : 'text-gray-400 hover:bg-white/5 hover:text-white'
-              } ${isExpanded ? 'px-3 justify-start w-full' : 'justify-center'}`}
-              title={isExpanded ? '' : `${project.name} (Right-click to edit)`}
-            >
-              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold overflow-hidden ${
-                project.id === currentProjectId
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400'
-              }`}>
-                {project.icon ? (
-                  project.icon.length > 2 ? (
-                    <img src={project.icon} alt={project.name} className="h-full w-full object-cover" />
-                  ) : (
-                    <span className="text-lg">{project.icon}</span>
-                  )
-                ) : (
-                  getProjectInitials(project.name)
-                )}
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <Droppable droppableId="projects" type="PROJECT">
+            {(provided, snapshot) => (
+              <div
+                ref={provided.innerRef}
+                {...provided.droppableProps}
+                className={`flex-1 overflow-y-auto space-y-2 px-5 ${
+                  snapshot.isDraggingOver ? 'bg-blue-500/5' : ''
+                }`}
+              >
+                {projects.map((project, index) => (
+                  <Draggable key={project.id} draggableId={project.id} index={index}>
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                        {...provided.dragHandleProps}
+                        className={`flex h-12 items-center gap-3 rounded-lg transition-all duration-200 w-full group ${
+                          snapshot.isDragging
+                            ? 'bg-blue-600/20 shadow-lg shadow-blue-600/20'
+                            : project.id === currentProjectId
+                            ? 'bg-blue-600/10 text-blue-400'
+                            : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                        } ${isExpanded ? 'px-3 justify-start' : 'justify-center'}`}
+                      >
+                        <button
+                          onClick={() => handleProjectClick(project.id)}
+                          className="flex flex-1 items-center gap-3 min-w-0"
+                        >
+                          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold overflow-hidden ${
+                            project.id === currentProjectId
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-800 text-gray-400'
+                          }`}>
+                            {project.icon ? (
+                              project.icon.length > 2 ? (
+                                <img src={project.icon} alt={project.name} className="h-full w-full object-cover" />
+                              ) : (
+                                <span className="text-lg">{project.icon}</span>
+                              )
+                            ) : (
+                              getProjectInitials(project.name)
+                            )}
+                          </div>
+                          {isExpanded && (
+                            <span className="text-sm font-medium truncate">{project.name}</span>
+                          )}
+                        </button>
+                        
+                        {isExpanded && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (kanbanRef?.current) {
+                                kanbanRef.current.editProject(project);
+                              }
+                            }}
+                            className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-white/10 rounded"
+                            title="Edit project"
+                          >
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
               </div>
-              {isExpanded && (
-                <div className="flex flex-1 items-center justify-between">
-                  <span className="text-sm font-medium truncate">{project.name}</span>
-                  <svg className="w-4 h-4 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                  </svg>
-                </div>
-              )}
-            </button>
-          ))}
-        </div>
+            )}
+          </Droppable>
+        </DragDropContext>
       </div>
 
       {/* New Project Button */}

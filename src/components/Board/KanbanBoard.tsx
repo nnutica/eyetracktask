@@ -57,6 +57,14 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<TaskStatus | ''>('');
   
+  // Loading states for buttons
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [isUpdatingProject, setIsUpdatingProject] = useState(false);
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [isUpdatingTask, setIsUpdatingTask] = useState(false);
+  const [isDeletingTask, setIsDeletingTask] = useState(false);
+  
   const {
     projects: supabaseProjects,
     loading,
@@ -140,69 +148,128 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
       });
       setOptimisticProjects(updatedProjects);
 
-      // Then update in database
-      updateTask(draggableId, { status: newStatus })
-        .then(() => {
-          // Reset optimistic state once successful
-          setOptimisticProjects(null);
-        })
-        .catch(() => {
-          // On error, revert optimistic state
-          setOptimisticProjects(null);
-        });
+      // Update in database in background (fire and forget)
+      updateTask(draggableId, { status: newStatus }).catch(() => {
+        // On error, revert optimistic state
+        setOptimisticProjects(null);
+      });
     }
   };
 
   const handleCreateTask = async () => {
     if (!newTaskTitle.trim() || !currentProject) return;
 
-    try {
-      await addTask(
-        currentProject.id,
-        newTaskTitle,
-        newTaskDescription,
-        newTaskDueDate || new Date().toISOString().split('T')[0],
-        selectedCategory
-      );
+    setIsCreatingTask(true);
+    
+    // Calculate default due date (today + 7 days)
+    const getDefaultDueDate = () => {
+      const date = new Date();
+      date.setDate(date.getDate() + 7);
+      return date.toISOString().split('T')[0];
+    };
+    
+    const dueDate = newTaskDueDate || getDefaultDueDate();
+    
+    // Create optimistic task
+    const optimisticTask: Task = {
+      id: 'temp-' + Date.now(),
+      title: newTaskTitle,
+      description: newTaskDescription || undefined,
+      status: selectedStatus as TaskStatus,
+      category: selectedCategory,
+      dueDate: dueDate,
+      subTasks: [],
+    };
 
-      setNewTaskTitle('');
-      setNewTaskDescription('');
-      setNewTaskDueDate('');
-      setIsModalOpen(false);
-    } catch (error) {
+    // Optimistic update - show task immediately
+    const updatedProjects = projects.map(p => {
+      if (p.id === currentProject.id) {
+        return {
+          ...p,
+          tasks: [...p.tasks, optimisticTask]
+        };
+      }
+      return p;
+    });
+    setOptimisticProjects(updatedProjects);
+
+    // Clear form
+    setNewTaskTitle('');
+    setNewTaskDescription('');
+    setNewTaskDueDate('');
+    setIsModalOpen(false);
+
+    // Actually create in database (fire and forget)
+    addTask(
+      currentProject.id,
+      newTaskTitle,
+      newTaskDescription,
+      dueDate,
+      selectedCategory
+    ).then(() => {
+      // Reset optimistic state once successful
+      setOptimisticProjects(null);
+    }).catch((error) => {
       console.error('Error creating task:', error);
+      // Revert optimistic state on error
+      setOptimisticProjects(null);
       alert('Failed to create task');
-    }
+    }).finally(() => {
+      setIsCreatingTask(false);
+    });
   };
 
   const handleCreateProject = async () => {
     if (!newProjectName.trim()) return;
 
-    try {
-      let iconUrl = newProjectIcon;
-      
-      // Upload icon file if exists
-      if (newProjectIconFile) {
-        iconUrl = await uploadProjectIcon(newProjectIconFile);
-      }
+    setIsCreatingProject(true);
 
-      const newProject = await createProject(newProjectName, iconUrl) as any;
-      if (newProject?.id) {
-        setCurrentProjectId(newProject.id);
+    // Create optimistic project
+    const optimisticProject: Project = {
+      id: 'temp-' + Date.now(),
+      name: newProjectName,
+      icon: newProjectIcon || undefined,
+      tasks: [],
+    };
+
+    // Optimistic update - show project immediately
+    setOptimisticProjects([...projects, optimisticProject]);
+    setCurrentProjectId(optimisticProject.id);
+
+    // Clear form
+    setNewProjectName('');
+    setNewProjectIcon('');
+    setNewProjectIconFile(null);
+    setIsProjectModalOpen(false);
+
+    // Actually create in database (fire and forget)
+    (async () => {
+      try {
+        let iconUrl = newProjectIcon;
+        
+        // Upload icon file if exists
+        if (newProjectIconFile) {
+          iconUrl = await uploadProjectIcon(newProjectIconFile);
+        }
+
+        const newProject = await createProject(newProjectName, iconUrl) as any;
+        // Reset optimistic state once successful
+        setOptimisticProjects(null);
+      } catch (error) {
+        console.error('Error creating project:', error);
+        // Revert optimistic state on error
+        setOptimisticProjects(null);
+        alert('Failed to create project');
+      } finally {
+        setIsCreatingProject(false);
       }
-      setNewProjectName('');
-      setNewProjectIcon('');
-      setNewProjectIconFile(null);
-      setIsProjectModalOpen(false);
-    } catch (error) {
-      console.error('Error creating project:', error);
-      alert('Failed to create project');
-    }
+    })();
   };
 
   const handleUpdateProject = async () => {
     if (!editingProject || !editingProject.name.trim()) return;
 
+    setIsUpdatingProject(true);
     try {
       let iconUrl = editingProject.icon;
       
@@ -221,6 +288,8 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
     } catch (error) {
       console.error('Error updating project:', error);
       alert('Failed to update project');
+    } finally {
+      setIsUpdatingProject(false);
     }
   };
 
@@ -231,6 +300,7 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
       return;
     }
 
+    setIsDeletingProject(true);
     try {
       await deleteProject(editingProject.id);
       setIsEditProjectModalOpen(false);
@@ -238,6 +308,8 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
     } catch (error) {
       console.error('Error deleting project:', error);
       alert('Failed to delete project');
+    } finally {
+      setIsDeletingProject(false);
     }
   };
 
@@ -268,6 +340,7 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
   const handleUpdateTask = async () => {
     if (!editingTask) return;
 
+    setIsUpdatingTask(true);
     try {
       await updateTask(editingTask.id, {
         title: editingTask.title,
@@ -281,12 +354,15 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
     } catch (error) {
       console.error('Error updating task:', error);
       alert('Failed to update task');
+    } finally {
+      setIsUpdatingTask(false);
     }
   };
 
   const handleDeleteTask = async () => {
     if (!editingTask) return;
 
+    setIsDeletingTask(true);
     try {
       await deleteTask(editingTask.id);
       setIsEditModalOpen(false);
@@ -294,24 +370,47 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
     } catch (error) {
       console.error('Error deleting task:', error);
       alert('Failed to delete task');
+    } finally {
+      setIsDeletingTask(false);
     }
   };
 
   const handleAddSubTask = async () => {
     if (!editingTask || !newSubTaskTitle.trim()) return;
 
+    // Create optimistic subtask
+    const optimisticSubTask = {
+      id: 'temp-' + Date.now(),
+      title: newSubTaskTitle,
+      isCompleted: false,
+    };
+
+    // Optimistic update - add subtask immediately
+    const updatedTask = {
+      ...editingTask,
+      subTasks: [...editingTask.subTasks, optimisticSubTask],
+    };
+    setEditingTask(updatedTask);
+
+    // Clear input immediately
+    const titleToAdd = newSubTaskTitle;
+    setNewSubTaskTitle('');
+
+    // Add to database in background
     try {
-      await addSubTask(editingTask.id, newSubTaskTitle);
-      setNewSubTaskTitle('');
-      // Refresh editing task
+      await addSubTask(editingTask.id, titleToAdd);
+      // Refresh editing task with real data
       const updatedProject = projects.find((p: Project) => p.id === currentProjectId);
-      const updatedTask = updatedProject?.tasks.find((t: Task) => t.id === editingTask.id);
-      if (updatedTask) {
-        setEditingTask(updatedTask);
+      const refreshedTask = updatedProject?.tasks.find((t: Task) => t.id === editingTask.id);
+      if (refreshedTask) {
+        setEditingTask(refreshedTask);
       }
     } catch (error) {
       console.error('Error adding subtask:', error);
-      alert('Failed to add subtask');
+      // Revert on error - remove optimistic subtask
+      setEditingTask(editingTask);
+      setNewSubTaskTitle(titleToAdd);
+      alert('Failed to add subtask. Please try again.');
     }
   };
 
@@ -434,6 +533,7 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
         onProjectIconChange={setNewProjectIcon}
         onIconUpload={(e) => handleIconUpload(e, false)}
         onCreate={handleCreateProject}
+        isLoading={isCreatingProject}
       />
 
       <EditProjectModal
@@ -448,6 +548,8 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
         onIconUpload={(e) => handleIconUpload(e, true)}
         onUpdate={handleUpdateProject}
         onDelete={handleDeleteProject}
+        isLoading={isUpdatingProject}
+        isDeleting={isDeletingProject}
       />
 
       <CreateTaskModal
@@ -465,6 +567,7 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
         onStatusChange={setSelectedStatus}
         onCategoryChange={setSelectedCategory}
         onCreate={handleCreateTask}
+        isLoading={isCreatingTask}
       />
 
       <EditTaskModal
@@ -483,6 +586,8 @@ const KanbanBoard = forwardRef<KanbanBoardHandle>((props, ref) => {
         onDeleteSubTask={handleDeleteSubTask}
         onUpdate={handleUpdateTask}
         onDelete={handleDeleteTask}
+        isLoading={isUpdatingTask}
+        isDeleting={isDeletingTask}
       />
     </div>
   );

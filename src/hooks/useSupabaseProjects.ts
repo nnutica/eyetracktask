@@ -287,6 +287,36 @@ export function useSupabaseProjects() {
     [supabase, fetchProjects]
   )
 
+  const updateProjectOrder = useCallback(
+    async (projectIds: string[]) => {
+      try {
+        // Update sort_order for each project
+        const updates = projectIds.map((id, index) => ({
+          id,
+          sort_order: index,
+        }))
+
+        // Update all projects with new sort_order
+        for (const update of updates) {
+          const { error } = await (supabase
+            .from('projects') as any)
+            .update({ sort_order: update.sort_order })
+            .eq('id', update.id)
+          
+          if (error) {
+            console.error('Error updating project sort_order:', error)
+          }
+        }
+
+        // Refresh projects list
+        await fetchProjects()
+      } catch (err) {
+        console.error('Error updating project sort_order:', err)
+      }
+    },
+    [supabase, fetchProjects]
+  )
+
   const addSubTask = useCallback(
     async (taskId: string, title: string) => {
       try {
@@ -363,6 +393,7 @@ export function useSupabaseProjects() {
     updateTask,
     deleteTask,
     addSubTask,
+    updateProjectOrder,
     updateSubTask,
     deleteSubTask,
     refetch: fetchProjects,

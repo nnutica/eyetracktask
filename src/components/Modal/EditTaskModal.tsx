@@ -18,6 +18,8 @@ interface EditTaskModalProps {
   onDeleteSubTask: (subTaskId: string) => void;
   onUpdate: () => void;
   onDelete: () => void;
+  isLoading?: boolean;
+  isDeleting?: boolean;
 }
 
 export default function EditTaskModal({
@@ -33,6 +35,8 @@ export default function EditTaskModal({
   onDeleteSubTask,
   onUpdate,
   onDelete,
+  isLoading = false,
+  isDeleting = false,
 }: EditTaskModalProps) {
   if (!task) return null;
 
@@ -130,7 +134,7 @@ export default function EditTaskModal({
 
           {/* Sub-Task List */}
           {task.subTasks.length > 0 ? (
-            <div className="max-h-48 overflow-y-auto space-y-2 rounded-lg bg-[#0F1115] p-3">
+            <div className="max-h-32 overflow-y-auto space-y-2 rounded-lg bg-[#0F1115] p-3 border border-gray-700">
               {task.subTasks.map((subTask) => (
                 <div 
                   key={subTask.id} 
@@ -171,15 +175,36 @@ export default function EditTaskModal({
             variant="ghost" 
             onClick={onDelete}
             className="text-red-400 hover:bg-red-500/10 hover:text-red-300"
+            disabled={isLoading || isDeleting}
           >
-            Delete Task
+            {isDeleting ? (
+              <div className="flex items-center gap-2">
+                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Deleting...
+              </div>
+            ) : (
+              'Delete Task'
+            )}
           </Button>
           <div className="flex gap-3">
-            <Button variant="ghost" onClick={onClose}>
+            <Button variant="ghost" onClick={onClose} disabled={isLoading || isDeleting}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={onUpdate}>
-              Save Changes
+            <Button variant="primary" onClick={onUpdate} disabled={isLoading || isDeleting}>
+              {isLoading ? (
+                <div className="flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Saving...
+                </div>
+              ) : (
+                'Save Changes'
+              )}
             </Button>
           </div>
         </div>

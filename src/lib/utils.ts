@@ -5,8 +5,8 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function getProgressPercentage(subTasks: { isCompleted: boolean }[]): number {
-  if (subTasks.length === 0) return 0;
+export function getProgressPercentage(subTasks?: { isCompleted: boolean }[] | null): number {
+  if (!subTasks || subTasks.length === 0) return 0;
   const completed = subTasks.filter(st => st.isCompleted).length;
   return Math.round((completed / subTasks.length) * 100);
 }

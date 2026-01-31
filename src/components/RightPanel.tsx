@@ -64,8 +64,17 @@ export default function RightPanel({ kanbanRef }: RightPanelProps) {
     }
   };
 
-  const getStatusBadge = (status: 'overdue' | 'today' | 'upcoming' | null) => {
-    if (!status) return null;
+  const getStatusBadge = (dueStatus: 'overdue' | 'today' | 'upcoming' | null, taskStatus?: string) => {
+    // If task is in Review status, show Wait-Approve badge
+    if (taskStatus === 'Review') {
+      return (
+        <span className="inline-flex items-center rounded-full border border-orange-500/20 bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-400">
+          Wait-Approve
+        </span>
+      );
+    }
+    
+    if (!dueStatus) return null;
     
     const styles = {
       overdue: 'bg-red-500/10 text-red-400 border-red-500/20',
@@ -80,8 +89,8 @@ export default function RightPanel({ kanbanRef }: RightPanelProps) {
     };
 
     return (
-      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${styles[status]}`}>
-        {labels[status]}
+      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${styles[dueStatus]}`}>
+        {labels[dueStatus]}
       </span>
     );
   };
@@ -172,7 +181,7 @@ export default function RightPanel({ kanbanRef }: RightPanelProps) {
                 >
                   {/* Status Badge */}
                   <div className={`mb-2 flex items-center ${isExpanded ? 'justify-between' : 'justify-center'}`}>
-                    {getStatusBadge(status)}
+                    {getStatusBadge(status, item.task.status)}
                     {isExpanded && (
                       <span className="text-xs text-gray-500">{formatDueDate(item.task.dueDate!)}</span>
                     )}

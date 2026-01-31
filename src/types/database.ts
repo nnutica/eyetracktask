@@ -31,6 +31,7 @@ export type Database = {
           user_id: string
           name: string
           icon: string | null
+          sort_order: number
           created_at: string
         }
         Insert: {
@@ -38,6 +39,7 @@ export type Database = {
           user_id: string
           name: string
           icon?: string | null
+          sort_order?: number
           created_at?: string
         }
         Update: {
@@ -45,6 +47,7 @@ export type Database = {
           user_id?: string
           name?: string
           icon?: string | null
+          sort_order?: number
           created_at?: string
         }
       }
